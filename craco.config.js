@@ -5,7 +5,7 @@ module.exports = {
     configure: (config, env) => {
       config.module.rules.push({
         test: /\.worker\.js$/,
-        use: { loader: "workerize-loader" },
+        use: { loader: "worker-loader" },
       });
 
       const wasmExtensionRegExp = /\.wasm$/;
