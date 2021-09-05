@@ -11,4 +11,14 @@ onmessage = async function (event) {
     requestAnimationFrame(render);
   }
   render();
+
+  const src = new Float32Array(100);
+  src.fill(1);
+  await renderer.map_write();
+  renderer.unmap_write(src);
+  renderer.compute();
+  const dst = new Float32Array(100);
+  await renderer.map_read();
+  renderer.unmap_read(dst);
+  console.log(src, dst);
 };

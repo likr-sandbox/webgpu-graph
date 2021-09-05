@@ -8,28 +8,45 @@ crate-type = ["cdylib"]
 
 [dependencies]
 js-sys = "0.3"
-wasm-bindgen = "0.2"
+wasm-bindgen = {version = "0.2", features = ["nightly"]}
 wasm-bindgen-futures = "0.4"
 
 [dependencies.web-sys]
 version = "0.3"
 features = [
   "GpuAdapter",
+  "GpuBindGroup",
+  "GpuBindGroupDescriptor",
+  "GpuBindGroupEntry",
+  "GpuBindGroupLayout",
+  "GpuBindGroupLayoutEntry",
+  "GpuBuffer",
+  "GpuBufferDescriptor",
+  "GpuBufferUsage",
   "GpuCanvasConfiguration",
   "GpuCanvasContext",
+  "GpuColorDict",
+  "GpuColorTargetState",
   "GpuCommandBuffer",
   "GpuCommandEncoder",
+  "GpuComputePassEncoder",
+  "GpuComputePipeline",
+  "GpuComputePipelineDescriptor",
   "GpuDevice",
   "GpuFragmentState",
+  "GpuMapMode",
   "GpuPrimitiveState",
   "GpuPrimitiveTopology",
+  "GpuProgrammableStage",
   "GpuQueue",
   "GpuRenderPipeline",
   "GpuRenderPipelineDescriptor",
+  "GpuRenderPassColorAttachment",
   "GpuRenderPassDescriptor",
   "GpuRenderPassEncoder",
   "GpuShaderModule",
   "GpuShaderModuleDescriptor",
+  "GpuStoreOp",
   "GpuTexture",
   "GpuTextureFormat",
   "GpuTextureView",
