@@ -14,15 +14,27 @@ fn fragment_main() -> [[location(0)]] vec4<f32> {
   return vec4<f32>(1.0, 0.0, 0.0, 1.0);
 }
 
-[[block]] struct Buffer {
+[[block]] struct WfBuffer {
   buffer : [[stride(4)]] array<f32>;
 };
+[[block]] struct WfParams {
+  size : u32;
+  k : u32;
+};
+[[group(0), binding(0)]] var<storage, read> wf_buffer_in: WfBuffer;
+[[group(0), binding(1)]] var<storage, write> wf_buffer_out: WfBuffer;
+[[group(0), binding(2)]] var<uniform> wf_params: WfParams;
 
-[[group(0), binding(0)]] var<storage, read> buffer_in: Buffer;
-[[group(0), binding(1)]] var<storage, write> buffer_out: Buffer;
-
-[[stage(compute), workgroup_size(64)]]
-fn compute_main([[builtin(global_invocation_id)]] GlobalInvocationID : vec3<u32>) {
-  var index : u32 = GlobalInvocationID.x;
-  buffer_out.buffer[index] = buffer_in.buffer[index] + 1.;
+[[stage(compute), workgroup_size(16, 16)]]
+fn warshall_floyd([[builtin(global_invocation_id)]] GlobalInvocationID : vec3<u32>) {
+  var i : u32 = GlobalInvocationID.x;
+  var j : u32 = GlobalInvocationID.y;
+  var k : u32 = wf_params.k;
+  var n : u32 = wf_params.size;
+  if (i < n && j < n) {
+    wf_buffer_out.buffer[i * n + j] = min(
+      wf_buffer_in.buffer[i * n + j],
+      wf_buffer_in.buffer[i * n + k] + wf_buffer_in.buffer[k * n + j]
+    );
+  }
 }

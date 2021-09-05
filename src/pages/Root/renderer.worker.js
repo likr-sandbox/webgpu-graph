@@ -12,13 +12,25 @@ onmessage = async function (event) {
   }
   render();
 
-  const src = new Float32Array(100);
-  src.fill(1);
+  const n = 1024;
+  const src = new Float32Array(n * n);
+  src.fill(Infinity);
+  for (let i = 0; i < n; ++i) {
+    src[i * n + i] = 0;
+  }
+  for (let i = 1; i < n; ++i) {
+    let j = i - 1;
+    src[i * n + j] = 1;
+    src[j * n + i] = 1;
+  }
   await renderer.map_write();
   renderer.unmap_write(src);
+  const start = performance.now();
   renderer.compute();
-  const dst = new Float32Array(100);
+  const stop = performance.now();
+  const dst = new Float32Array(n * n);
   await renderer.map_read();
   renderer.unmap_read(dst);
   console.log(src, dst);
+  console.log(stop - start);
 };

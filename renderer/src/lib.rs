@@ -1,4 +1,5 @@
-use js_sys::{Array, Float32Array, Object, Promise, Reflect};
+use js_sys::{Array, Float32Array, Object, Promise, Reflect, Uint32Array};
+use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 use web_sys::{
     GpuAdapter, GpuBindGroup, GpuBindGroupDescriptor, GpuBindGroupEntry, GpuBuffer,
@@ -10,12 +11,33 @@ use web_sys::{
     GpuVertexState,
 };
 
+#[derive(Serialize, Deserialize)]
+pub struct Node {
+    id: usize,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct Link {
+    source: usize,
+    target: usize,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct Graph {
+    pub nodes: Vec<Node>,
+    pub links: Vec<Link>,
+}
+
 #[wasm_bindgen]
 pub struct Renderer {
+    size: usize,
+    capacity: usize,
+    workgroup_size: usize,
     map_read_buffer: GpuBuffer,
     map_write_buffer: GpuBuffer,
     compute_in_buffer: GpuBuffer,
     compute_out_buffer: GpuBuffer,
+    compute_params_buffer: GpuBuffer,
     render_pipeline: GpuRenderPipeline,
     compute_pipeline: GpuComputePipeline,
     compute_bind_group: GpuBindGroup,
@@ -41,6 +63,9 @@ impl Renderer {
         adapter: &GpuAdapter,
         device: &GpuDevice,
     ) -> Result<Renderer, JsValue> {
+        let size = 1024;
+        let capacity = 4 * size * size;
+        let workgroup_size = 16;
         let context = context.clone();
         let device = device.clone();
         let presentation_format = context.get_preferred_format(&adapter);
@@ -65,45 +90,58 @@ impl Renderer {
                 .primitive(&GpuPrimitiveState::new().topology(GpuPrimitiveTopology::TriangleList)),
         );
         let map_read_buffer = device.create_buffer(&GpuBufferDescriptor::new(
-            400.,
+            capacity as f64,
             GpuBufferUsage::MAP_READ | GpuBufferUsage::COPY_DST,
         ));
         let map_write_buffer = device.create_buffer(&GpuBufferDescriptor::new(
-            400.,
+            capacity as f64,
             GpuBufferUsage::MAP_WRITE | GpuBufferUsage::COPY_SRC,
         ));
         let compute_in_buffer = device.create_buffer(&GpuBufferDescriptor::new(
-            400.,
+            capacity as f64,
             GpuBufferUsage::STORAGE | GpuBufferUsage::COPY_DST,
         ));
         let compute_out_buffer = device.create_buffer(&GpuBufferDescriptor::new(
-            400.,
+            capacity as f64,
             GpuBufferUsage::STORAGE | GpuBufferUsage::COPY_SRC,
         ));
-        let compute_pipeline = create_compute_pipeline(&device, &"compute_main", &shader_module);
+        let compute_params_buffer = device.create_buffer(&GpuBufferDescriptor::new(
+            8.,
+            GpuBufferUsage::UNIFORM | GpuBufferUsage::COPY_DST,
+        ));
+        let compute_pipeline = create_compute_pipeline(&device, &"warshall_floyd", &shader_module);
         let compute_bind_group = device.create_bind_group(&{
             let entries = Array::new();
             entries.push(&GpuBindGroupEntry::new(0, &{
                 let resource = Object::new();
                 Reflect::set(&resource, &"buffer".into(), &compute_in_buffer)?;
                 Reflect::set(&resource, &"offset".into(), &0.into())?;
-                Reflect::set(&resource, &"size".into(), &400.into())?;
+                Reflect::set(&resource, &"size".into(), &(capacity as f64).into())?;
                 resource.into()
             }));
             entries.push(&GpuBindGroupEntry::new(1, &{
                 let resource = Object::new();
                 Reflect::set(&resource, &"buffer".into(), &compute_out_buffer)?;
                 Reflect::set(&resource, &"offset".into(), &0.into())?;
-                Reflect::set(&resource, &"size".into(), &400.into())?;
+                Reflect::set(&resource, &"size".into(), &(capacity as f64).into())?;
+                resource.into()
+            }));
+            entries.push(&GpuBindGroupEntry::new(2, &{
+                let resource = Object::new();
+                Reflect::set(&resource, &"buffer".into(), &compute_params_buffer)?;
                 resource.into()
             }));
             GpuBindGroupDescriptor::new(&entries, &compute_pipeline.get_bind_group_layout(0))
         });
         Ok(Renderer {
+            size,
+            capacity,
+            workgroup_size,
             map_read_buffer,
             map_write_buffer,
             compute_in_buffer,
             compute_out_buffer,
+            compute_params_buffer,
             render_pipeline,
             compute_pipeline,
             compute_bind_group,
@@ -132,31 +170,40 @@ impl Renderer {
     }
 
     pub fn compute(&self) {
-        let command_encoder = self.device.create_command_encoder();
-        command_encoder.copy_buffer_to_buffer_with_u32_and_u32_and_u32(
-            &self.map_write_buffer,
-            0,
-            &self.compute_in_buffer,
-            0,
-            400,
-        );
-        let pass_encoder = command_encoder.begin_compute_pass();
-        pass_encoder.set_pipeline(&self.compute_pipeline);
-        pass_encoder.set_bind_group(0, &self.compute_bind_group);
-        pass_encoder.dispatch(100);
-        pass_encoder.end_pass();
-        command_encoder.copy_buffer_to_buffer_with_u32_and_u32_and_u32(
-            &self.compute_out_buffer,
-            0,
-            &self.map_read_buffer,
-            0,
-            400,
-        );
-        self.device.queue().submit(&{
-            let command_buffers = Array::new();
-            command_buffers.push(&command_encoder.finish());
-            command_buffers.into()
-        });
+        for k in 0..self.size {
+            let command_encoder = self.device.create_command_encoder();
+            let pass_encoder = command_encoder.begin_compute_pass();
+            pass_encoder.set_pipeline(&self.compute_pipeline);
+            pass_encoder.set_bind_group(0, &self.compute_bind_group);
+            let params = {
+                let params = Array::new();
+                params.push(&(self.size as u32).into());
+                params.push(&(k as u32).into());
+                Uint32Array::new(&params)
+            };
+            self.device.queue().write_buffer_with_u32_and_buffer_source(
+                &self.compute_params_buffer,
+                0,
+                &params,
+            );
+            pass_encoder.dispatch_with_y(
+                ((self.size + self.workgroup_size - 1) / self.workgroup_size) as u32,
+                ((self.size + self.workgroup_size - 1) / self.workgroup_size) as u32,
+            );
+            pass_encoder.end_pass();
+            command_encoder.copy_buffer_to_buffer_with_u32_and_u32_and_u32(
+                &self.compute_out_buffer,
+                0,
+                &self.compute_in_buffer,
+                0,
+                self.capacity as u32,
+            );
+            self.device.queue().submit(&{
+                let command_buffers = Array::new();
+                command_buffers.push(&command_encoder.finish());
+                command_buffers.into()
+            });
+        }
     }
 
     pub fn map_write(&self) -> Promise {
@@ -167,9 +214,35 @@ impl Renderer {
         let src_buffer = Float32Array::new(&self.map_write_buffer.get_mapped_range());
         src_buffer.set(&src, 0);
         self.map_write_buffer.unmap();
+        let command_encoder = self.device.create_command_encoder();
+        command_encoder.copy_buffer_to_buffer_with_u32_and_u32_and_u32(
+            &self.map_write_buffer,
+            0,
+            &self.compute_in_buffer,
+            0,
+            self.capacity as u32,
+        );
+        self.device.queue().submit(&{
+            let command_buffers = Array::new();
+            command_buffers.push(&command_encoder.finish());
+            command_buffers.into()
+        });
     }
 
     pub fn map_read(&self) -> Promise {
+        let command_encoder = self.device.create_command_encoder();
+        command_encoder.copy_buffer_to_buffer_with_u32_and_u32_and_u32(
+            &self.compute_out_buffer,
+            0,
+            &self.map_read_buffer,
+            0,
+            self.capacity as u32,
+        );
+        self.device.queue().submit(&{
+            let command_buffers = Array::new();
+            command_buffers.push(&command_encoder.finish());
+            command_buffers.into()
+        });
         self.map_read_buffer.map_async(GpuMapMode::READ)
     }
 
