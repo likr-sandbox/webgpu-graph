@@ -1,10 +1,12 @@
 onmessage = async function (event) {
+  const n = 1024 * 4;
   const { Renderer } = await import("renderer");
   const { canvas } = event.data;
   const context = canvas.getContext("webgpu");
   const adapter = await navigator.gpu.requestAdapter();
   const device = await adapter.requestDevice();
-  const renderer = new Renderer(context, adapter, device);
+  console.log(adapter, device);
+  const renderer = new Renderer(context, adapter, device, n);
 
   function render() {
     renderer.frame();
@@ -12,7 +14,6 @@ onmessage = async function (event) {
   }
   render();
 
-  const n = 1024;
   const src = new Float32Array(n * n);
   src.fill(Infinity);
   for (let i = 0; i < n; ++i) {

@@ -4,17 +4,19 @@ version = "0.1.0"
 edition = "2018"
 
 [lib]
-crate-type = ["cdylib"]
+crate-type = ["rlib", "cdylib"]
 
 [dependencies]
-js-sys = "0.3"
+js-sys = "0.3.56"
 serde = { version = "1.0", features = ["derive"] }
-wasm-bindgen = {version = "0.2", features = ["nightly", "serde-serialize"]}
-wasm-bindgen-futures = "0.4"
+wasm-bindgen = {version = "0.2.79", features = ["nightly", "serde-serialize"]}
+wasm-bindgen-futures = "0.4.29"
 
 [dependencies.web-sys]
-version = "0.3"
+version = "0.3.56"
 features = [
+  "Document",
+  "Gpu",
   "GpuAdapter",
   "GpuBindGroup",
   "GpuBindGroupDescriptor",
@@ -52,4 +54,10 @@ features = [
   "GpuTextureFormat",
   "GpuTextureView",
   "GpuVertexState",
+  "HtmlCanvasElement",
+  "Navigator",
+  "Window",
 ]
+
+[dev-dependencies]
+wasm-bindgen-test = "0.3.0"

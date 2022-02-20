@@ -41,6 +41,8 @@ pub struct Renderer {
     render_pipeline: GpuRenderPipeline,
     compute_pipeline: GpuComputePipeline,
     compute_bind_group: GpuBindGroup,
+    tropical_matmul_pipeline: GpuComputePipeline,
+    tropical_matmul_bind_group: GpuBindGroup,
     device: GpuDevice,
     context: GpuCanvasContext,
 }
@@ -62,8 +64,8 @@ impl Renderer {
         context: &GpuCanvasContext,
         adapter: &GpuAdapter,
         device: &GpuDevice,
+        size: usize,
     ) -> Result<Renderer, JsValue> {
-        let size = 1024;
         let capacity = 4 * size * size;
         let workgroup_size = 16;
         let context = context.clone();
@@ -109,7 +111,8 @@ impl Renderer {
             8.,
             GpuBufferUsage::UNIFORM | GpuBufferUsage::COPY_DST,
         ));
-        let compute_pipeline = create_compute_pipeline(&device, &"warshall_floyd", &shader_module);
+        let compute_pipeline =
+            create_compute_pipeline(&device, &"warshall_floyd_kernel", &shader_module);
         let compute_bind_group = device.create_bind_group(&{
             let entries = Array::new();
             entries.push(&GpuBindGroupEntry::new(0, &{
@@ -133,6 +136,34 @@ impl Renderer {
             }));
             GpuBindGroupDescriptor::new(&entries, &compute_pipeline.get_bind_group_layout(0))
         });
+        let tropical_matmul_pipeline =
+            create_compute_pipeline(&device, &"tropical_matmul", &shader_module);
+        let tropical_matmul_bind_group = device.create_bind_group(&{
+            let entries = Array::new();
+            entries.push(&GpuBindGroupEntry::new(0, &{
+                let resource = Object::new();
+                Reflect::set(&resource, &"buffer".into(), &compute_in_buffer)?;
+                Reflect::set(&resource, &"offset".into(), &0.into())?;
+                Reflect::set(&resource, &"size".into(), &(capacity as f64).into())?;
+                resource.into()
+            }));
+            entries.push(&GpuBindGroupEntry::new(1, &{
+                let resource = Object::new();
+                Reflect::set(&resource, &"buffer".into(), &compute_out_buffer)?;
+                Reflect::set(&resource, &"offset".into(), &0.into())?;
+                Reflect::set(&resource, &"size".into(), &(capacity as f64).into())?;
+                resource.into()
+            }));
+            entries.push(&GpuBindGroupEntry::new(2, &{
+                let resource = Object::new();
+                Reflect::set(&resource, &"buffer".into(), &compute_params_buffer)?;
+                resource.into()
+            }));
+            GpuBindGroupDescriptor::new(
+                &entries,
+                &tropical_matmul_pipeline.get_bind_group_layout(0),
+            )
+        });
         Ok(Renderer {
             size,
             capacity,
@@ -145,6 +176,8 @@ impl Renderer {
             render_pipeline,
             compute_pipeline,
             compute_bind_group,
+            tropical_matmul_pipeline,
+            tropical_matmul_bind_group,
             device,
             context,
         })
@@ -203,6 +236,45 @@ impl Renderer {
                 command_buffers.push(&command_encoder.finish());
                 command_buffers.into()
             });
+        }
+    }
+
+    pub fn compute_tropical_matmul(&self) {
+        let mut k = 1;
+        while k < self.size {
+            let command_encoder = self.device.create_command_encoder();
+            let pass_encoder = command_encoder.begin_compute_pass();
+            pass_encoder.set_pipeline(&self.tropical_matmul_pipeline);
+            pass_encoder.set_bind_group(0, &self.tropical_matmul_bind_group);
+            let params = {
+                let params = Array::new();
+                params.push(&(self.size as u32).into());
+                params.push(&(k as u32).into());
+                Uint32Array::new(&params)
+            };
+            self.device.queue().write_buffer_with_u32_and_buffer_source(
+                &self.compute_params_buffer,
+                0,
+                &params,
+            );
+            pass_encoder.dispatch_with_y(
+                ((self.size + self.workgroup_size - 1) / self.workgroup_size) as u32,
+                ((self.size + self.workgroup_size - 1) / self.workgroup_size) as u32,
+            );
+            pass_encoder.end_pass();
+            command_encoder.copy_buffer_to_buffer_with_u32_and_u32_and_u32(
+                &self.compute_out_buffer,
+                0,
+                &self.compute_in_buffer,
+                0,
+                self.capacity as u32,
+            );
+            self.device.queue().submit(&{
+                let command_buffers = Array::new();
+                command_buffers.push(&command_encoder.finish());
+                command_buffers.into()
+            });
+            k *= 2;
         }
     }
 
